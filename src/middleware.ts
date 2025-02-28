@@ -4,11 +4,11 @@ import { Request, Response, NextFunction } from "express";
 interface AuthRequest extends Request {
   user?: jwt.JwtPayload;
 }
-export const verifyToken =(
+export const verifyToken = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) : void => {
+): void => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
@@ -28,7 +28,6 @@ export const verifyToken =(
 
     const decode = jwt.verify(token, process.env.JWT_SECRET) as jwt.JwtPayload;
     req.user = decode;
-
     next();
   } catch (err) {
     console.log(err);
@@ -38,4 +37,4 @@ export const verifyToken =(
     });
     return;
   }
-}
+};

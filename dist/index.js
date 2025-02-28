@@ -13,10 +13,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
-const argon2_1 = __importDefault(require("argon2"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const express_1 = __importDefault(require("express"));
 const client = new client_1.PrismaClient();
 const dotenv_1 = __importDefault(require("dotenv"));
+const middleware_1 = require("./middleware");
+const bcrypt_1 = __importDefault(require("bcrypt"));
 dotenv_1.default.config();
 console.log(process.env.JWT_SECRET);
 // async function createUser(){
@@ -58,41 +60,41 @@ console.log(process.env.JWT_SECRET);
 // createUser();
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
-app.post('/signup', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post("/signup", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { username, password, age, city } = req.body;
         if (!username || !password || !age || !city) {
             res.status(404).json({
                 success: false,
-                message: "All the things are mandatory"
+                message: "All the things are mandatory",
             });
             return;
         }
         const userExist = yield client.user.findFirst({
             where: {
-                username
-            }
+                username,
+            },
         });
         if (userExist) {
             res.status(401).json({
                 success: false,
-                message: "User already exist"
+                message: "User already exist",
             });
             return;
         }
-        const hashPass = yield argon2_1.default.hash(password);
+        const hashPass = yield bcrypt_1.default.hash(password, 10);
         const response = yield client.user.create({
             data: {
                 username,
                 password: hashPass,
                 age,
-                city
-            }
+                city,
+            },
         });
         res.status(200).json({
             success: true,
             message: "User Created Successfully",
-            response
+            response,
         });
         return;
     }
@@ -100,46 +102,150 @@ app.post('/signup', (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         console.log(error);
         res.status(500).json({
             success: false,
-            message: "Internal Server Error"
+            message: "Internal Server Error",
         });
     }
 }));
-app.post('/login', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post("/login", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { username, password } = req.body;
         if (!username || !password) {
             res.status(404).json({
                 success: false,
-                message: "All the things are mandatory"
+                message: "All the things are mandatory",
             });
             return;
         }
         const userExist = yield client.user.findFirst({
             where: {
-                username
-            }
+                username,
+            },
         });
         if (!userExist) {
             res.status(401).json({
                 success: false,
-                message: "User does not exist"
+                message: "User does not exist",
             });
             return;
         }
         const dbPass = userExist === null || userExist === void 0 ? void 0 : userExist.password;
-        if (yield argon2_1.default.verify(password, dbPass)) {
+        if (yield bcrypt_1.default.compare(password, dbPass)) {
             const payload = {
-                id: userExist.id
+                id: userExist.id,
             };
-            // jwt.sign(payload, process.env.JWT_SECRET)
+            const token = jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET);
+            res.status(200).json({
+                success: true,
+                message: "Login Successfully",
+                token,
+            });
+            return;
+        }
+        else {
+            res.status(402).json({
+                success: false,
+                message: "Password Incorrect",
+            });
         }
     }
     catch (error) {
         console.log(error);
         res.status(500).json({
             success: false,
-            message: "Internal Server Error"
+            message: "Internal Server Error",
         });
+    }
+}));
+app.post("/todo/addTodo", middleware_1.verifyToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { title, desc } = req.body;
+        console.log(req.user);
+        const userId = req.user;
+        console.log(title, desc);
+        console.log(userId);
+        if (!title) {
+            res.status(401).json({
+                success: false,
+                message: "Title Required",
+            });
+            return;
+        }
+        const todo = yield client.todo.create({
+            data: {
+                title,
+                desc,
+                completed: false,
+                userId: userId === null || userId === void 0 ? void 0 : userId.id,
+            },
+        });
+        res.status(200).json({
+            success: true,
+            message: "Added Todo",
+            todo,
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+        });
+    }
+}));
+app.get("/todo/getAllTodos", middleware_1.verifyToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const decode = req.user;
+        console.log(decode);
+        if (!decode) {
+            res.status(500).json({
+                success: false,
+                message: "Token not found",
+            });
+            return;
+        }
+        const userExist = yield client.user.findFirst({
+            where: {
+                id: decode.id,
+            },
+        });
+        if (!userExist) {
+            res.status(404).json({
+                success: true,
+                message: "No user found with the id",
+            });
+        }
+        const todos = yield client.todo.findMany({
+            where: {
+                userId: decode.id,
+            },
+        });
+        res.status(200).json({
+            success: true,
+            message: "All todos",
+            todos,
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+        });
+        return;
+    }
+}));
+app.delete('/todo/deleteTodo/:id', middleware_1.verifyToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const id = req.params.id;
+        console.log(id);
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+        });
+        return;
     }
 }));
 app.listen(3000, () => {
